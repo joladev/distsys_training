@@ -33,14 +33,24 @@ defmodule Shortener.Router do
   end
 
   get "/:short_code" do
-    case LinkManager.lookup(short_code) do
+    case LinkManager.remote_lookup(short_code) do
       {:ok, url} ->
+        Aggregates.increment(short_code)
+
         conn
         |> put_resp_header("location", url)
         |> send_resp(302, url)
 
-      {:error, _} ->
-        send_resp(conn, 404, "Not Found")
+      {:error, :node_down} ->
+        case LinkManager.lookup(short_code) do
+          {:ok, url} ->
+            Aggregates.increment(short_code)
+
+            conn
+            |> put_resp_header("location", url)
+            |> send_resp(302, url)
+          {:error, _} -> send_resp(conn, 404, "Not Found")
+        end
     end
   end
 

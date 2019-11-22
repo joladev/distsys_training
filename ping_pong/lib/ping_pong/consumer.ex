@@ -22,7 +22,7 @@ defmodule PingPong.Consumer do
   end
 
   def init(_args) do
-    {:ok, @initial}
+    {:ok, @initial, {:continue, :catchup}}
   end
 
   def handle_cast({:ping, index, node}, data) do
@@ -49,5 +49,12 @@ defmodule PingPong.Consumer do
   def handle_call(:crash, _from, _data) do
     _count = 42/0
     {:reply, :ok, @initial}
+  end
+
+  def handle_continue(:catchup, state) do
+    case GenServer.multi_call(Producer, :get_current) do
+      {results, []} -> {:noreply, %{counts: Map.new(results)}}
+      _ -> {:noreply, state}
+    end
   end
 end

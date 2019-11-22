@@ -3,7 +3,7 @@ defmodule Shortener.LinkManager do
   Manages the lifecycles of links
   """
 
-  alias Shortener.Storage
+  alias Shortener.{Storage, LinkManager}
   alias Shortener.LinkManager.Cache
   alias Shortener.Cluster
 
@@ -25,15 +25,36 @@ defmodule Shortener.LinkManager do
   def create(url) do
     short_code = generate_short_code(url)
 
-    {:ok, short_code}
+    Storage.set(short_code, url)
+    node = Cluster.find_node(short_code)
+    case :rpc.call(node, Cache, :insert, [short_code, url]) do
+      {:badrpc, :nodedown} -> {:error, :node_down}
+      _ -> {:ok, short_code}
+    end
   end
 
   def lookup(short_code) do
-    Storage.get(short_code)
+    with {:ok, url} <- Cache.lookup(short_code) do
+      {:ok, url}
+    else
+      {:error, :not_found} -> check_storage(short_code)
+    end
+  end
+
+  defp check_storage(short_code) do
+    with {:ok, url} <- Storage.get(short_code) do
+      Cache.insert(short_code, url)
+      {:ok, url}
+    end
   end
 
   def remote_lookup(short_code) do
     # TODO - Do a remote lookup
+    node = Cluster.find_node(short_code)
+    case :rpc.call(node, LinkManager, :lookup, [short_code]) do
+      {:badrpc, :nodedown} -> {:error, :node_down}
+      {:ok, url} -> {:ok, url}
+    end
   end
 
   def generate_short_code(url) do
